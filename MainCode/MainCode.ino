@@ -1,60 +1,5 @@
 #include <ArduinoJson.h>
-
-#include <DHT.h>
-#include <DHT_U.h>
-
-enum Function {cooling, heating};
-enum Power {eco, boost};
-enum ByPass {open, closed};
-
-struct State {
-  Function function;
-  Power power;
-  ByPass bypass;
-} state;
-
-
-
-class Ventilator {
-  public:
-    State state{Function::heating, Power::eco, ByPass::closed};
-
-    const int HOT_IN = 2;
-    const int HOT_OUT = 3;
-    const int COLD_IN = 4;
-    const int COLD_OUT = 5;
-
-    const int VALVE = 6;
-
-    const int VENTILATOR_IN_SMALL = 8;
-    const int VENTILATOR_OUT_SMALL = 9;
-    const int VENTILATOR_IN_BIG = 11;
-    const int VENTILATOR_OUT_BIG = 12;
-    
-    DHT HotInSensor = DHT(HOT_IN, DHT22);
-    DHT HotOutSensor = DHT(HOT_OUT, DHT22);
-    DHT ColdInSensor = DHT(COLD_IN, DHT22);
-    DHT ColdOutSensor = DHT(COLD_OUT, DHT22);
-
-    void start() {
-      HotInSensor.begin();
-      HotOutSensor.begin();
-      ColdInSensor.begin();
-      ColdOutSensor.begin();
-
-
-      pinMode(VALVE, OUTPUT);
-      pinMode(VENTILATOR_IN_SMALL, OUTPUT);
-      pinMode(VENTILATOR_OUT_SMALL, OUTPUT);
-      pinMode(VENTILATOR_IN_BIG, OUTPUT);
-      pinMode(VENTILATOR_OUT_BIG, OUTPUT);
-
-      digitalWrite(VENTILATOR_IN_SMALL, HIGH);
-      digitalWrite(VENTILATOR_OUT_SMALL, HIGH);
-      digitalWrite(VENTILATOR_IN_BIG, LOW);
-      digitalWrite(VENTILATOR_OUT_BIG, LOW);
-    }
-};
+#include "ventilator.h"
 
 Ventilator ventilator;
 
@@ -66,17 +11,25 @@ void setup() {
 void loop() {
 
   delay(2000);
-
+  ventilator.manage();
   StaticJsonDocument<200> doc;
-  
+
   doc ["state"]["function"] = toString(ventilator.state.function);
   doc ["state"]["power"] = toString(ventilator.state.power);
   doc ["state"]["bypass"] = toString(ventilator.state.bypass);
-  
-  AddRecord("HotIn", &ventilator.HotInSensor, &doc);
-  AddRecord("HotOut", &ventilator.HotOutSensor, &doc);
-  AddRecord("ColdIn", &ventilator.ColdInSensor, &doc);
-  AddRecord("ColdOut", &ventilator.ColdOutSensor, &doc);
+
+  doc ["measurements"]["indoorIn"]["temp"]   = ventilator.measurements.indoorIn.temp;
+  doc ["measurements"]["indoorIn"]["hum"]    = ventilator.measurements.indoorIn.hum;
+
+  doc ["measurements"]["indoorOut"]["temp"]  = ventilator.measurements.indoorOut.temp;
+  doc ["measurements"]["indoorOut"]["hum"]   = ventilator.measurements.indoorOut.hum;
+
+  doc ["measurements"]["outsiteIn"]["temp"]  = ventilator.measurements.outsiteIn.temp;
+  doc ["measurements"]["outsiteIn"]["hum"]   = ventilator.measurements.outsiteIn.hum;
+
+  doc ["measurements"]["outsiteOut"]["temp"] = ventilator.measurements.outsiteOut.temp;
+  doc ["measurements"]["outsiteOut"]["hum"]  = ventilator.measurements.outsiteOut.hum;
+
   CalculateEfficienty(&doc);
 
   String serialized;
@@ -85,26 +38,30 @@ void loop() {
 }
 
 void AddRecord(char* name, DHT* sensor, JsonDocument* doc) {
-  JsonObject HotIn = doc->createNestedObject(name);
-  HotIn["temp"] = sensor->readTemperature();
-  HotIn["hum"]  = sensor->readHumidity();
+  JsonObject IndoorIn = doc->createNestedObject(name);
+  IndoorIn["temp"] = sensor->readTemperature();
+  IndoorIn["hum"]  = sensor->readHumidity();
 }
 
 void CalculateEfficienty(JsonDocument* doc)
 {
-  (*doc) ["Delta"]            = (int)(*doc)["HotIn"]["temp"] - (int)(*doc)["ColdIn"]["temp"];
-  (*doc) ["Efficenty"]["Out"] = 100 - (100 / (int)(*doc) ["Delta"] * ((int)(*doc)["HotIn"]["temp"]  - (int)(*doc)["HotOut"]["temp"]));
-  (*doc) ["Efficenty"]["In"]  = 100 - (100 / (int)(*doc) ["Delta"] * ((int)(*doc)["ColdIn"]["temp"] - (int)(*doc)["ColdOut"]["temp"])); 
+  (*doc) ["Delta"]            = (int)(*doc)["IndoorIn"]["temp"] - (int)(*doc)["outsiteIn"]["temp"];
+  (*doc) ["Efficenty"]["Out"] = 100 - (100 / (int)(*doc) ["Delta"] * ((int)(*doc)["IndoorIn"]["temp"]  - (int)(*doc)["IndoorOut"]["temp"]));
+  (*doc) ["Efficenty"]["In"]  = 100 - (100 / (int)(*doc) ["Delta"] * ((int)(*doc)["outsiteIn"]["temp"] - (int)(*doc)["outsiteOut"]["temp"]));
 }
 
-String toString(Power power){
-  return (power == 0) ? "eco" : "boost";
-  }
+String toString(Power power) {
+  return (power == Power::standby) ? "standby" : (power == Power::eco) ? "eco" : "boost";
+}
 
-String toString(Function function){
+String toString(Function function) {
   return function == 0 ? "cooling" : "heating";
 }
 
-String toString(ByPass bypass){
+String toString(Bypass bypass) {
   return bypass == 0 ? "open" : "closed";
+}
+
+String toString(Control control) {
+  return control == 0 ? "automatic" : "manuel";
 }
